@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Our Travel Map</title>
+<link rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+  integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb"
+  crossorigin="anonymous" referrerpolicy="no-referrer">
+<script
+  src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
+  integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO"
+  crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="places.js"></script>
+<style>
+  :root {
+    --ink: #1f2933;
+    --muted: #616e7c;
+    --line: #e4e7eb;
+    --card: #ffffff;
+    --country: #2a9d8f;
+    --pin: #e4572e;
+    --warn-bg: #fff8e6;
+    --warn-ink: #8a5a00;
+    --shadow: 0 4px 18px rgba(15, 23, 42, .14);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #f2f1ee; color: var(--ink); font: 14px/1.45 var(--font); }
+  #map { position: fixed; inset: 0; background: #f2f1ee; }
+
+  /* Header card */
+  .card {
+    position: fixed; z-index: 1000; top: 12px; left: 12px;
+    background: var(--card); border-radius: 12px; box-shadow: var(--shadow);
+    padding: 12px 14px; max-width: calc(100vw - 24px); width: 300px;
+  }
+  .card h1 { margin: 0; font-size: 17px; letter-spacing: -.01em; }
+  .stats { margin: 2px 0 10px; color: var(--muted); }
+  .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .filter { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .filter select { font: inherit; color: var(--ink); padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .filter button { font: inherit; border: 0; background: none; color: var(--country); cursor: pointer; padding: 3px 2px; }
+  .filter[hidden], .filter button[hidden] { display: none; }
+  .notices:empty { display: none; }
+  .notices { margin-top: 10px; font-size: 12.5px; display: grid; gap: 6px; }
+  .notice { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 6px 8px; }
+  .notice.info { background: #eef6f5; color: #1d6b62; }
+  .notice ul { margin: 4px 0 0; padding-left: 18px; }
+
+  /* Place panel: side on desktop, bottom sheet on phones */
+  .panel {
+    position: fixed; z-index: 1001; top: 12px; right: 12px; bottom: 12px; width: 380px;
+    background: var(--card); border-radius: 12px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; overflow: hidden;
+    transform: translateX(calc(100% + 24px)); transition: transform .22s ease;
+  }
+  .panel.open { transform: none; }
+  .panel-close {
+    position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 50%;
+    border: 0; background: rgba(255,255,255,.9); box-shadow: 0 1px 4px rgba(0,0,0,.2);
+    font-size: 20px; line-height: 1; cursor: pointer; color: var(--ink); z-index: 2;
+  }
+  .panel-body { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .panel-img { width: 100%; max-height: 220px; object-fit: cover; display: block; background: var(--line); }
+  .panel-content { padding: 14px 16px 20px; }
+  .panel h2 { margin: 0 36px 2px 0; font-size: 20px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); margin-bottom: 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip { background: #eef6f5; color: #1d6b62; border-radius: 999px; padding: 2px 9px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .note { border-left: 3px solid var(--pin); padding: 2px 0 2px 10px; margin: 0 0 12px; white-space: pre-wrap; }
+  .cities { margin: 0 0 12px; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+  .cities button { font: inherit; font-size: 13px; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 2px 10px; cursor: pointer; color: var(--ink); }
+  .cities button:hover { border-color: var(--pin); }
+  .wiki { border-top: 1px solid var(--line); padding-top: 12px; }
+  .wiki p { margin: 0 0 10px; }
+  .wiki a { color: var(--country); font-weight: 600; text-decoration: none; }
+  .wiki a:hover { text-decoration: underline; }
+  .wiki .fail { color: var(--muted); }
+  .skeleton { height: 12px; border-radius: 4px; background: linear-gradient(90deg, #eceff1, #f6f7f8, #eceff1); background-size: 200% 100%; animation: sh 1.2s infinite; margin-bottom: 8px; }
+  @keyframes sh { to { background-position: -200% 0; } }
+
+  .leaflet-tooltip.tip { font: 13px/1.35 var(--font); padding: 4px 8px; border-radius: 6px; }
+  .tip small { color: var(--muted); }
+  .leaflet-control-attribution { font-size: 10.5px; }
+  path.leaflet-interactive:focus { outline: none; }
+  .muted-tiles { filter: grayscale(1) brightness(1.06) contrast(.82); }
+
+  @media (max-width: 640px) {
+    .card { top: max(8px, env(safe-area-inset-top)); left: 8px; right: 8px; width: auto; padding: 10px 12px; }
+    .panel {
+      top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 62vh;
+      border-radius: 14px 14px 0 0; transform: translateY(100%);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .panel-img { max-height: 160px; }
+  }
+</style>
+</head>
+<body>
+<div id="map" aria-label="World map of places we've visited"></div>
+
+<header class="card">
+  <h1>Our Travel Map</h1>
+  <div class="stats" id="stats">Loading…</div>
+  <div class="filter" id="filter" hidden>
+    <span>Years</span>
+    <select id="yearFrom" aria-label="From year"></select>
+    <span>to</span>
+    <select id="yearTo" aria-label="To year"></select>
+    <button id="yearReset" type="button" hidden>Show all</button>
+  </div>
+  <div class="notices" id="notices"></div>
+</header>
+
+<aside class="panel" id="panel" aria-live="polite">
+  <button class="panel-close" id="panelClose" type="button" aria-label="Close">×</button>
+  <div class="panel-body" id="panelBody"></div>
+</aside>
+
+<script>
+'use strict';
+
+// ─── External resources (all pinned) ─────────────────────────────────────
+const COUNTRIES_URL = 'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/ne_50m_admin_0_countries.geojson';
+const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+const WIKIPEDIA_API = 'https://en.wikipedia.org/w/api.php';
+const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';
+const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · Borders: <a href="https://www.naturalearthdata.com/">Natural Earth</a>';
+
+// Common names that Natural Earth spells differently. Left side is what you
+// might type; right side is a name Natural Earth knows.
+const COUNTRY_ALIASES = {
+  'usa': 'united states of america', 'us': 'united states of america', 'america': 'united states of america',
+  'united states': 'united states of america',
+  'uk': 'united kingdom', 'great britain': 'united kingdom', 'britain': 'united kingdom',
+  'england': 'united kingdom', 'scotland': 'united kingdom', 'wales': 'united kingdom', 'northern ireland': 'united kingdom',
+  'holland': 'netherlands', 'korea': 'south korea', 'burma': 'myanmar', 'ivory coast': "cote d'ivoire",
+  'turkiye': 'turkey', 'vatican city': 'vatican', 'holy see': 'vatican', 'uae': 'united arab emirates',
+  'swaziland': 'eswatini', 'macedonia': 'north macedonia', 'east timor': 'timor-leste', 'cape verde': 'cabo verde',
+  'drc': 'democratic republic of the congo', 'dr congo': 'democratic republic of the congo',
+  'bosnia': 'bosnia and herzegovina', 'macao': 'macau', 'czech republic': 'czechia', 'viet nam': 'vietnam',
+};
+
+// ─── Parsing the places file ─────────────────────────────────────────────
+const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .toLowerCase().replace(/^the\s+/, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const COORD_RE = /^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/;
+const YEARS_RE = /^\d{4}(?:\s*(?:,|-|–|—|to)\s*\d{4})*$/i;
+
+function parseYears(text) {
+  const years = new Set();
+  for (const part of text.split(',')) {
+    const [a, b] = part.split(/\s*(?:-|–|—|to)\s*/i).map(Number);
+    for (let y = a; y <= (b || a); y++) years.add(y);
+  }
+  return [...years].sort((x, y) => x - y);
+}
+
+function parsePlaces(text) {
+  const places = [];
+  (text || '').split('\n').forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) return;
+    const fields = line.split('|').map(s => s.trim());
+    const name = fields.shift();
+    const place = { line: i + 1, years: [], notes: [], coords: null, wiki: null };
+    const comma = name.lastIndexOf(',');
+    if (comma >= 0) { place.city = name.slice(0, comma).trim(); place.country = name.slice(comma + 1).trim(); }
+    else place.country = name;
+    for (const f of fields) {
+      if (!f) continue;
+      const c = f.includes('.') && f.match(COORD_RE);
+      if (/^wiki\s*:/i.test(f)) place.wiki = f.replace(/^wiki\s*:\s*/i, '');
+      else if (c && Math.abs(c[1]) <= 90 && Math.abs(c[2]) <= 180) place.coords = [+c[1], +c[2]];
+      else if (YEARS_RE.test(f)) place.years = parseYears(f);
+      else place.notes.push(f);
+    }
+    place.notes = place.notes.join(' · ');
+    places.push(place);
+  });
+  return places;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const yearsText = ys => {
+  // 2015, 2016, 2017, 2020 → "2015–2017, 2020"
+  const out = [];
+  for (let i = 0; i < ys.length; i++) {
+    let j = i;
+    while (j + 1 < ys.length && ys[j + 1] === ys[j] + 1) j++;
+    out.push(j - i >= 2 ? `${ys[i]}–${ys[j]}` : ys.slice(i, j + 1).join(', '));
+    i = j;
+  }
+  return out.join(', ');
+};
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+async function getJSON(url, params) {
+  const u = new URL(url);
+  for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v);
+  const r = await fetch(u);
+  if (!r.ok) throw new Error(`${r.status} from ${u.host}`);
+  return r.json();
+}
+function distanceKm([a, b], [c, d]) {
+  const rad = x => x * Math.PI / 180;
+  const h = Math.sin(rad(c - a) / 2) ** 2 + Math.cos(rad(a)) * Math.cos(rad(c)) * Math.sin(rad(d - b) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+// ─── Map ─────────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: false, worldCopyJump: true, minZoom: 2 }).setView([30, 10], 2);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+// Standard OpenStreetMap tiles, softened to a light grey with CSS (see .muted-tiles).
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: TILE_ATTRIBUTION, className: 'muted-tiles',
+}).addTo(map);
+
+const countryLayer = L.layerGroup().addTo(map);
+const pinLayer = L.layerGroup().addTo(map);
+
+// ─── State ───────────────────────────────────────────────────────────────
+const state = {
+  places: parsePlaces(window.PLACES),
+  countryIndex: new Map(),   // normalised name → feature
+  countries: new Map(),      // ADM0_A3 → { feature, entries: [], layer }
+  cities: [],                // city entries that have coords, each gets a .marker
+  range: null,               // [from, to] or null for all years
+  problems: [],
+  lookedUp: [],
+};
+
+function indexCountries(geojson) {
+  const keys = ['ADMIN', 'NAME', 'NAME_LONG', 'NAME_EN', 'NAME_SORT', 'NAME_ALT', 'FORMAL_EN', 'BRK_NAME', 'GEOUNIT', 'SUBUNIT', 'NAME_CIAWF'];
+  for (const f of geojson.features) {
+    const p = f.properties;
+    for (const k of keys) if (p[k] && !state.countryIndex.has(norm(p[k]))) state.countryIndex.set(norm(p[k]), f);
+    for (const k of ['ISO_A2_EH', 'ISO_A3_EH', 'ADM0_A3'])
+      if (p[k] && p[k] !== '-99' && !state.countryIndex.has(norm(p[k]))) state.countryIndex.set(norm(p[k]), f);
+  }
+}
+function findCountry(name) {
+  const n = norm(name);
+  return state.countryIndex.get(COUNTRY_ALIASES[n] ? norm(COUNTRY_ALIASES[n]) : n);
+}
+
+const inRange = entry => !state.range || entry.years.some(y => y >= state.range[0] && y <= state.range[1]);
+
+// ─── Countries ───────────────────────────────────────────────────────────
+function buildCountries() {
+  for (const place of state.places) {
+    const f = findCountry(place.country);
+    if (!f) { state.problems.push(`Line ${place.line}: couldn't recognise the country “${esc(place.country)}”.`); continue; }
+    place.feature = f;
+    const code = f.properties.ADM0_A3;
+    if (!state.countries.has(code)) state.countries.set(code, { feature: f, entries: [] });
+    state.countries.get(code).entries.push(place);
+  }
+  for (const c of state.countries.values()) {
+    c.layer = L.geoJSON(c.feature, { style: countryStyle(true) })
+      .bindTooltip(() => countryTooltip(c), { className: 'tip', sticky: true })
+      .on('click', e => { L.DomEvent.stopPropagation(e); openCountry(c); })
+      .addTo(countryLayer);
+  }
+}
+function countryStyle(active) {
+  return { color: '#1d6b62', weight: 1, opacity: active ? .7 : .25,
+           fillColor: getComputedStyle(document.documentElement).getPropertyValue('--country'),
+           fillOpacity: active ? .38 : .08 };
+}
+function countryTooltip(c) {
+  const years = [...new Set(c.entries.flatMap(e => e.years))].sort();
+  const n = c.entries.filter(e => e.city).length;
+  return `<b>${esc(c.feature.properties.NAME)}</b>` +
+    (years.length ? `<br><small>${yearsText(years)}</small>` : '') +
+    (n ? `<br><small>${n} ${n === 1 ? 'city' : 'cities'}</small>` : '');
+}
+
+// ─── City pins ───────────────────────────────────────────────────────────
+function addPin(place) {
+  place.marker = L.circleMarker(place.coords, {
+    radius: 6, weight: 2, color: '#fff', fillColor: getComputedStyle(document.documentElement).getPropertyValue('--pin'), fillOpacity: 1,
+  })
+    .bindTooltip(`<b>${esc(place.city)}</b>` + (place.years.length ? `<br><small>${yearsText(place.years)}</small>` : ''),
+                 { className: 'tip', direction: 'top', offset: [0, -6] })
+    .on('click', e => { L.DomEvent.stopPropagation(e); openCity(place); })
+    .addTo(pinLayer);
+  state.cities.push(place);
+}
+
+// Places without coordinates are looked up here so they show up straight away.
+// Results are remembered in this browser only; geocode.py saves them to the file.
+async function geocodeMissing() {
+  const todo = state.places.filter(p => p.city && !p.coords && p.feature);
+  if (!todo.length) return;
+  let first = true;
+  for (const p of todo) {
+    const key = 'geo:' + norm(`${p.city}, ${p.country}`);
+    let hit = store.get(key);
+    if (!hit) {
+      if (!first) await sleep(1100);          // Nominatim: max 1 request per second
+      first = false;
+      try {
+        const cc = p.feature.properties.ISO_A2_EH;
+        const res = await getJSON(NOMINATIM_URL, {
+          q: `${p.city}, ${p.country}`, format: 'jsonv2', limit: 1, 'accept-language': 'en',
+          ...(cc && cc !== '-99' ? { countrycodes: cc.toLowerCase() } : {}),
+        });
+        if (res[0]) { hit = [+(+res[0].lat).toFixed(4), +(+res[0].lon).toFixed(4)]; store.set(key, hit); }
+      } catch (err) { console.warn('Lookup failed for', p.city, err); }
+    }
+    if (hit) { p.coords = hit; addPin(p); state.lookedUp.push(p); }
+    else state.problems.push(`Line ${p.line}: couldn't find “${esc(p.city)}” in ${esc(p.country)}. Check the spelling or add coordinates by hand.`);
+    applyFilter();
+  }
+}
+
+// ─── Year filter & counters ──────────────────────────────────────────────
+function setupFilter() {
+  const years = [...new Set(state.places.flatMap(p => p.years))].sort((a, b) => a - b);
+  if (years.length < 2) return;
+  const opts = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  $('yearFrom').innerHTML = opts; $('yearTo').innerHTML = opts;
+  $('yearFrom').value = years[0]; $('yearTo').value = years.at(-1);
+  const update = () => {
+    let a = +$('yearFrom').value, b = +$('yearTo').value;
+    if (a > b) [a, b] = [b, a];
+    state.range = (a === years[0] && b === years.at(-1)) ? null : [a, b];
+    $('yearReset').hidden = !state.range;
+    applyFilter();
+  };
+  $('yearFrom').onchange = $('yearTo').onchange = update;
+  $('yearReset').onclick = () => { $('yearFrom').value = years[0]; $('yearTo').value = years.at(-1); update(); };
+  $('filter').hidden = false;
+}
+
+function applyFilter() {
+  let nCountries = 0;
+  for (const c of state.countries.values()) {
+    const active = c.entries.some(inRange);
+    if (active) nCountries++;
+    c.layer.setStyle(countryStyle(active));
+  }
+  const seen = new Set();
+  for (const p of state.cities) {
+    const active = inRange(p);
+    p.marker.setStyle({ opacity: active ? 1 : .35, fillOpacity: active ? 1 : .2 });
+    if (active) seen.add(norm(p.city + ',' + p.country));
+  }
+  const s = (n, w) => `<b>${n}</b> ${w}${n === 1 ? '' : 's'}`;
+  $('stats').innerHTML = `${s(nCountries, 'country').replace('countrys', 'countries')} · ${s(seen.size, 'city').replace('citys', 'cities')}` +
+    (state.range ? ` <span>in ${state.range[0] === state.range[1] ? state.range[0] : state.range.join('–')}</span>` : '');
+  renderNotices();
+}
+
+function renderNotices() {
+  const out = [];
+  if (state.problems.length)
+    out.push(`<div class="notice"><b>Needs a look in places.js</b><ul>${state.problems.map(p => `<li>${p}</li>`).join('')}</ul></div>`);
+  if (state.lookedUp.length) {
+    const names = state.lookedUp.map(p => esc(p.city)).join(', ');
+    out.push(`<div class="notice info">Found ${names} automatically. Run <code>geocode.py</code> to save the coordinates into places.js.</div>`);
+  }
+  $('notices').innerHTML = out.join('');
+}
+
+// ─── Wikipedia ───────────────────────────────────────────────────────────
+const WIKI_PROPS = {
+  action: 'query', format: 'json', formatversion: 2, origin: '*', redirects: 1,
+  prop: 'extracts|pageimages|coordinates|pageprops|info', exintro: 1, explaintext: 1, exsentences: 4,
+  piprop: 'thumbnail', pithumbsize: 640, inprop: 'url', ppprop: 'disambiguation',
+};
+const usable = p => p && !p.missing && !p.invalid && !(p.pageprops && 'disambiguation' in p.pageprops);
+const wikiCache = new Map();
+
+// A city article must be within 60 km of the pin, so a city never gets matched to a
+// same-named place elsewhere (or a film). Some articles have no coordinates; those
+// count if they at least mention the country ("a town on the Indonesian island of Bali").
+function isNear(page, near, country) {
+  if (!near) return true;
+  if (page.coordinates) return distanceKm(near, [page.coordinates[0].lat, page.coordinates[0].lon]) < 60;
+  return !!country && norm(page.extract).includes(norm(country).slice(0, 6));
+}
+// "Victoria, British Columbia" counts as named after "Victoria"; "Gianyar Regency" doesn't.
+const namedAfter = (page, name) => (norm(page.title) + ' ').startsWith(norm(name) + ' ');
+
+async function wikiByTitle(title, near, country) {
+  const d = await getJSON(WIKIPEDIA_API, { ...WIKI_PROPS, titles: title });
+  const page = d.query?.pages?.[0];
+  return usable(page) && isNear(page, near, country) ? page : null;
+}
+async function wikiBySearch(query, near, name, country) {
+  const d = await getJSON(WIKIPEDIA_API, { ...WIKI_PROPS, generator: 'search', gsrsearch: query, gsrlimit: 6, exlimit: 6 });
+  return (d.query?.pages || []).filter(usable).sort((a, b) => a.index - b.index)
+    .find(p => namedAfter(p, name) && isNear(p, near, country)) || null;
+}
+async function wikidataTitle(qid) {
+  const d = await getJSON(WIKIDATA_API, { action: 'wbgetentities', ids: qid, props: 'sitelinks', sitefilter: 'enwiki', format: 'json', origin: '*' });
+  return d.entities?.[qid]?.sitelinks?.enwiki?.title || null;
+}
+
+// Tries the most precise method first and falls back step by step.
+async function resolveWiki(key, attempts) {
+  if (wikiCache.has(key)) return wikiCache.get(key);
+  let page = null;
+  for (const attempt of attempts) {
+    try { page = await attempt(); } catch (err) { console.warn('Wikipedia lookup step failed', err); }
+    if (page) break;
+  }
+  wikiCache.set(key, page);
+  return page;
+}
+const cityWiki = p => {
+  const country = p.feature?.properties.NAME || p.country;
+  return resolveWiki('city:' + p.line + p.city, [
+    () => p.wiki && wikiByTitle(p.wiki),
+    () => wikiByTitle(p.city, p.coords, country),
+    () => wikiBySearch(`${p.city} ${country}`, p.coords, p.city, country),
+  ]);
+};
+const countryWiki = c => {
+  const props = c.feature.properties;
+  const override = c.entries.find(e => !e.city && e.wiki)?.wiki;
+  return resolveWiki('country:' + props.ADM0_A3, [
+    () => override && wikiByTitle(override),
+    async () => { const t = props.WIKIDATAID && await wikidataTitle(props.WIKIDATAID); return t && wikiByTitle(t); },
+    () => wikiByTitle(props.NAME_EN || props.NAME),
+  ]);
+};
+
+// ─── Panel ───────────────────────────────────────────────────────────────
+let panelToken = 0;
+function showPanel({ title, sub, years, notes, cities, wikiPromise, searchTerm }) {
+  const token = ++panelToken;
+  $('panelBody').innerHTML = `
+    <div id="panelImg"></div>
+    <div class="panel-content">
+      <h2>${esc(title)}</h2>
+      ${sub ? `<div class="sub">${sub}</div>` : ''}
+      ${years.length ? `<div class="chips">${years.map(y => `<span class="chip">${y}</span>`).join('')}</div>` : ''}
+      ${notes.map(n => `<p class="note">${esc(n)}</p>`).join('')}
+      ${cities?.length ? `<ul class="cities">${cities.map((c, i) => `<li><button data-i="${i}" type="button">${esc(c.city)}</button></li>`).join('')}</ul>` : ''}
+      <div class="wiki" id="wiki"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton" style="width:60%"></div></div>
+    </div>`;
+  $('panelBody').querySelectorAll('.cities button').forEach(b => b.onclick = () => openCity(cities[+b.dataset.i], true));
+  $('panelBody').scrollTop = 0;
+  $('panel').classList.add('open');
+
+  const searchUrl = `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(searchTerm)}`;
+  wikiPromise.then(page => {
+    if (token !== panelToken) return;
+    if (!page) {
+      $('wiki').innerHTML = `<p class="fail">Couldn't find a Wikipedia article for this place.</p><a href="${searchUrl}" target="_blank" rel="noopener">Search Wikipedia →</a>`;
+      return;
+    }
+    if (page.thumbnail) $('panelImg').innerHTML = `<img class="panel-img" src="${esc(page.thumbnail.source)}" alt="">`;
+    // Drop brackets from the first sentence: they're mostly pronunciations and
+    // native spellings, and plain-text extracts leave them half-empty ("( KAM-loops)").
+    const raw = page.extract || '';
+    const cut = raw.search(/\.\s/) + 1 || raw.length;
+    const extract = raw.slice(0, cut).replace(/\s*\((?:[^()]|\([^()]*\))*\)/g, '') + raw.slice(cut);
+    $('wiki').innerHTML = `${extract ? `<p>${esc(extract)}</p>` : ''}
+      <a href="${esc(page.fullurl)}" target="_blank" rel="noopener">Read more on Wikipedia →</a>`;
+  });
+}
+function closePanel() { panelToken++; $('panel').classList.remove('open'); }
+$('panelClose').onclick = closePanel;
+map.on('click', closePanel);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+
+function openCity(p, fly) {
+  if (fly && p.coords) map.flyTo(p.coords, Math.max(map.getZoom(), 7), { duration: .8 });
+  showPanel({
+    title: p.city, sub: esc(p.feature?.properties.NAME || p.country), years: p.years,
+    notes: p.notes ? [p.notes] : [], wikiPromise: cityWiki(p), searchTerm: `${p.city} ${p.country}`,
+  });
+}
+function openCountry(c) {
+  const years = [...new Set(c.entries.flatMap(e => e.years))].sort((a, b) => a - b);
+  const cities = c.entries.filter(e => e.city && e.coords);
+  showPanel({
+    title: c.feature.properties.NAME, sub: cities.length ? `${cities.length} ${cities.length === 1 ? 'city' : 'cities'} visited` : '',
+    years, notes: c.entries.filter(e => !e.city && e.notes).map(e => e.notes),
+    cities, wikiPromise: countryWiki(c), searchTerm: c.feature.properties.NAME,
+  });
+}
+
+// ─── Start ───────────────────────────────────────────────────────────────
+async function start() {
+  if (!window.PLACES) {
+    $('stats').textContent = 'Couldn’t read places.js. Check that the first and last lines are intact and there are no backticks (`) inside.';
+    return;
+  }
+  try {
+    const r = await fetch(COUNTRIES_URL);
+    indexCountries(await r.json());
+  } catch (err) {
+    state.problems.push('Couldn’t load the country borders. Check your internet connection and refresh.');
+  }
+  buildCountries();
+  state.places.filter(p => p.city && p.coords).forEach(addPin);
+  setupFilter();
+  applyFilter();
+  geocodeMissing();
+}
+start();
+</script>
+</body>
+</html>
