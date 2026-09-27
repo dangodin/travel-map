@@ -41,8 +41,7 @@
   .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
   .filter { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
   .filter select { font: inherit; color: var(--ink); padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
-  .filter button { font: inherit; border: 0; background: none; color: var(--country); cursor: pointer; padding: 3px 2px; }
-  .filter[hidden], .filter button[hidden] { display: none; }
+  .filter[hidden] { display: none; }
   .notices:empty { display: none; }
   .notices { margin-top: 10px; font-size: 12.5px; display: grid; gap: 6px; }
   .notice { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 6px 8px; }
@@ -105,11 +104,8 @@
   <h1>Our Travel Map</h1>
   <div class="stats" id="stats">Loading…</div>
   <div class="filter" id="filter" hidden>
-    <span>Years</span>
-    <select id="yearFrom" aria-label="From year"></select>
-    <span>to</span>
-    <select id="yearTo" aria-label="To year"></select>
-    <button id="yearReset" type="button" hidden>Show all</button>
+    <label for="year">Year</label>
+    <select id="year"></select>
   </div>
   <div class="notices" id="notices"></div>
 </header>
@@ -232,7 +228,7 @@ const state = {
   countryIndex: new Map(),   // normalised name → feature
   countries: new Map(),      // ADM0_A3 → { feature, entries: [], layer }
   cities: [],                // city entries that have coords, each gets a .marker
-  range: null,               // [from, to] or null for all years
+  year: null,                // selected year, or null for all years
   problems: [],
   lookedUp: [],
 };
@@ -251,7 +247,7 @@ function findCountry(name) {
   return state.countryIndex.get(COUNTRY_ALIASES[n] ? norm(COUNTRY_ALIASES[n]) : n);
 }
 
-const inRange = entry => !state.range || entry.years.some(y => y >= state.range[0] && y <= state.range[1]);
+const inRange = entry => !state.year || entry.years.includes(state.year);
 
 // ─── Countries ───────────────────────────────────────────────────────────
 function buildCountries() {
@@ -326,18 +322,9 @@ async function geocodeMissing() {
 function setupFilter() {
   const years = [...new Set(state.places.flatMap(p => p.years))].sort((a, b) => a - b);
   if (years.length < 2) return;
-  const opts = years.map(y => `<option value="${y}">${y}</option>`).join('');
-  $('yearFrom').innerHTML = opts; $('yearTo').innerHTML = opts;
-  $('yearFrom').value = years[0]; $('yearTo').value = years.at(-1);
-  const update = () => {
-    let a = +$('yearFrom').value, b = +$('yearTo').value;
-    if (a > b) [a, b] = [b, a];
-    state.range = (a === years[0] && b === years.at(-1)) ? null : [a, b];
-    $('yearReset').hidden = !state.range;
-    applyFilter();
-  };
-  $('yearFrom').onchange = $('yearTo').onchange = update;
-  $('yearReset').onclick = () => { $('yearFrom').value = years[0]; $('yearTo').value = years.at(-1); update(); };
+  $('year').innerHTML = '<option value="">All years</option>' +
+    years.map(y => `<option value="${y}">${y}</option>`).join('');
+  $('year').onchange = () => { state.year = +$('year').value || null; applyFilter(); };
   $('filter').hidden = false;
 }
 
@@ -356,7 +343,7 @@ function applyFilter() {
   }
   const s = (n, w) => `<b>${n}</b> ${w}${n === 1 ? '' : 's'}`;
   $('stats').innerHTML = `${s(nCountries, 'country').replace('countrys', 'countries')} · ${s(seen.size, 'city').replace('citys', 'cities')}` +
-    (state.range ? ` <span>in ${state.range[0] === state.range[1] ? state.range[0] : state.range.join('–')}</span>` : '');
+    (state.year ? ` <span>in ${state.year}</span>` : '');
   renderNotices();
 }
 
